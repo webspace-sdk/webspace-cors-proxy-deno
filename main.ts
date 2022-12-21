@@ -6,7 +6,7 @@ function addCorsIfNeeded(response: Response) {
 
   headers.set("Access-Control-Allow-Origin", "*");
   headers.set("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS");
-  headers.set("Access-Control-Allow-Headers", "Range, User-Agent, Origin, Referer, Accept");
+  headers.set("Access-Control-Allow-Headers", "*");
   headers.set("Access-Control-Expose-Headers", "Accept-Ranges, Content-Encoding, Content-Length, Content-Range");
   headers.set('Vary', 'Origin')
   headers.set('X-Content-Type-Options', 'nosniff')
