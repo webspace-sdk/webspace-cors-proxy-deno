@@ -4,9 +4,12 @@ import { CSS, render } from "https://deno.land/x/gfm@0.1.22/mod.ts";
 function addCorsIfNeeded(response: Response) {
   const headers = new Headers(response.headers);
 
-  if (!headers.has("access-control-allow-origin")) {
-    headers.set("access-control-allow-origin", "*");
-  }
+  headers.set("Access-Control-Allow-Origin", "*");
+  headers.set("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS");
+  headers.set("Access-Control-Allow-Headers", "Range, User-Agent, Origin, Referer, Accept");
+  headers.set("Access-Control-Expose-Headers", "Accept-Ranges, Content-Encoding, Content-Length, Content-Range");
+  headers.set('Vary', 'Origin')
+  headers.set('X-Content-Type-Options', 'nosniff')
 
   return headers;
 }
@@ -34,9 +37,19 @@ async function handleRequest(request: Request) {
     if (request.method.toUpperCase() === "OPTIONS") {
       return new Response(null, { headers: corsHeaders });
     }
-
-    const response = await fetch(url, request);
+    
+    const requestHeaders = new Headers(request.headers)
+    requestHeaders.delete('Origin') // Some domains disallow access from improper Origins
+    
+    const response = await fetch(url, {
+      headers: requestHeaders,
+      method: request.method,
+      referrer: request.referrer,
+      referrerPolicy: request.referrerPolicy
+    });
+    
     const headers = addCorsIfNeeded(response);
+    
     return new Response(response.body, {
       status: response.status,
       statusText: response.statusText,
