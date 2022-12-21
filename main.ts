@@ -28,7 +28,7 @@ function isUrl(url: string) {
 }
 
 async function handleRequest(request: Request) {
-  const url = new URL(url);
+  const url = new URL(request.url);
   const { pathname, search } = url;
   const targetUrl = pathname.substring(1) + search;
 
