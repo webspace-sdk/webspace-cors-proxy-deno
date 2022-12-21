@@ -56,13 +56,13 @@ async function handleRequest(request: Request) {
     
     if (redirectLocation) {
       if (!redirectLocation.startsWith('/')) {
-        responseHeaders.set(
+        headers.set(
           'Location',
           proxyUrl.protocol + '//' + proxyUrl.host + '/' + redirectLocation
         )
       } else {
         const tUrl = new URL(targetUrl)
-        responseHeaders.set(
+        headers.set(
           'Location',
           proxyUrl.protocol +
             '//' +
