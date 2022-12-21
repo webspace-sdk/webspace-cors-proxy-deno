@@ -28,11 +28,12 @@ function isUrl(url: string) {
 }
 
 async function handleRequest(request: Request) {
-  const { pathname, search } = new URL(request.url);
-  const url = pathname.substring(1) + search;
+  const url = new URL(url);
+  const { pathname, search } = url;
+  const targetUrl = pathname.substring(1) + search;
 
-  if (isUrl(url)) {
-    console.log("proxy to %s", url);
+  if (isUrl(targetUrl)) {
+    console.log("proxy to %s", targetUrl);
     const corsHeaders = addCorsIfNeeded(new Response());
     if (request.method.toUpperCase() === "OPTIONS") {
       return new Response(null, { headers: corsHeaders });
@@ -41,14 +42,37 @@ async function handleRequest(request: Request) {
     const requestHeaders = new Headers(request.headers)
     requestHeaders.delete('Origin') // Some domains disallow access from improper Origins
     
-    const response = await fetch(url, {
+    const response = await fetch(targetUrl, {
       headers: requestHeaders,
       method: request.method,
+      redirect: 'manual',
       referrer: request.referrer,
       referrerPolicy: request.referrerPolicy
     });
     
     const headers = addCorsIfNeeded(response);
+    const proxyUrl = new URL(url.origin)
+    const redirectLocation = headers.get('Location') || headers.get('location')
+    
+    if (redirectLocation) {
+      if (!redirectLocation.startsWith('/')) {
+        responseHeaders.set(
+          'Location',
+          proxyUrl.protocol + '//' + proxyUrl.host + '/' + redirectLocation
+        )
+      } else {
+        const tUrl = new URL(targetUrl)
+        responseHeaders.set(
+          'Location',
+          proxyUrl.protocol +
+            '//' +
+            proxyUrl.host +
+            '/' +
+            tUrl.origin +
+            redirectLocation
+        )
+      }
+    }
     
     return new Response(response.body, {
       status: response.status,
