@@ -1,15 +1,52 @@
-import { serve } from "https://deno.land/std@0.152.0/http/server.ts";
-import { CSS, render } from "https://deno.land/x/gfm@0.1.22/mod.ts";
+import { serve } from "@std/http/server";
+import { CSS, render } from "@gfm";
 
-function addCorsIfNeeded(response: Response) {
-  const headers = new Headers(response.headers);
+const DEFAULT_ALLOWED_METHODS = "GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS";
+
+function upsertVary(headers: Headers, value: string) {
+  const additions = value.split(",").map((part) => part.trim()).filter(Boolean);
+  const existing = headers.get("Vary");
+
+  if (!existing) {
+    headers.set("Vary", additions.join(", "));
+    return;
+  }
+
+  const varySet = new Set(
+    existing.split(",").map((part) => part.trim()).filter(Boolean),
+  );
+
+  for (const addition of additions) {
+    varySet.add(addition);
+  }
+
+  headers.set("Vary", Array.from(varySet).join(", "));
+}
+
+function applyCorsHeaders(
+  request: Request,
+  headersInit?: HeadersInit,
+) {
+  const headers = new Headers(headersInit);
+  const requestedMethod = request.headers.get("Access-Control-Request-Method");
+  const requestedHeaders = request.headers.get("Access-Control-Request-Headers");
 
   headers.set("Access-Control-Allow-Origin", "*");
-  headers.set("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS");
-  headers.set("Access-Control-Allow-Headers", "*");
-  headers.set("Access-Control-Expose-Headers", "Accept-Ranges, Content-Encoding, Content-Length, Content-Range");
-  headers.set('Vary', 'Origin')
-  headers.set('X-Content-Type-Options', 'nosniff')
+  headers.set(
+    "Access-Control-Allow-Methods",
+    requestedMethod ? `${requestedMethod}, OPTIONS` : DEFAULT_ALLOWED_METHODS,
+  );
+  headers.set(
+    "Access-Control-Allow-Headers",
+    requestedHeaders ?? "*",
+  );
+  headers.set(
+    "Access-Control-Expose-Headers",
+    "Accept-Ranges, Content-Encoding, Content-Length, Content-Range, Location",
+  );
+  headers.set("Access-Control-Max-Age", "86400");
+  headers.set("X-Content-Type-Options", "nosniff");
+  upsertVary(headers, "Origin, Access-Control-Request-Headers");
 
   return headers;
 }
@@ -27,6 +64,25 @@ function isUrl(url: string) {
   }
 }
 
+function rewriteRedirectLocation(
+  locationHeader: string,
+  requestTargetUrl: string,
+  proxyOrigin: string,
+) {
+  if (locationHeader.startsWith(`${proxyOrigin}/`)) {
+    return null;
+  }
+
+  try {
+    const resolvedTarget = new URL(requestTargetUrl);
+    const resolvedLocation = new URL(locationHeader, resolvedTarget);
+    const proxied = `${proxyOrigin}/${resolvedLocation.href}`;
+    return proxied;
+  } catch {
+    return null;
+  }
+}
+
 async function handleRequest(request: Request) {
   const url = new URL(request.url);
   const { pathname, search } = url;
@@ -34,46 +90,35 @@ async function handleRequest(request: Request) {
 
   if (isUrl(targetUrl)) {
     console.log("proxy to %s", targetUrl);
-    const corsHeaders = addCorsIfNeeded(new Response());
-    if (request.method.toUpperCase() === "OPTIONS") {
+    const method = request.method.toUpperCase();
+    const corsHeaders = applyCorsHeaders(request);
+
+    if (method === "OPTIONS") {
       return new Response(null, { headers: corsHeaders });
     }
-    
-    const requestHeaders = new Headers(request.headers)
-    requestHeaders.delete('Origin') // Some domains disallow access from improper Origins
-    
+
+    const requestHeaders = new Headers(request.headers);
+    requestHeaders.delete("Origin");
+
     const response = await fetch(targetUrl, {
       headers: requestHeaders,
       method: request.method,
-      redirect: 'manual',
+      redirect: "manual",
       referrer: request.referrer,
-      referrerPolicy: request.referrerPolicy
+      referrerPolicy: request.referrerPolicy,
+      signal: request.signal,
     });
-    
-    const headers = addCorsIfNeeded(response);
-    const proxyUrl = new URL(url.origin)
-    const redirectLocation = headers.get('Location') || headers.get('location')
-    
+
+    const headers = applyCorsHeaders(request, response.headers);
+    const redirectLocation = response.headers.get("location");
+
     if (redirectLocation) {
-      if (!redirectLocation.startsWith('/')) {
-        headers.set(
-          'Location',
-          proxyUrl.protocol + '//' + proxyUrl.host + '/' + redirectLocation
-        )
-      } else {
-        const tUrl = new URL(targetUrl)
-        headers.set(
-          'Location',
-          proxyUrl.protocol +
-            '//' +
-            proxyUrl.host +
-            '/' +
-            tUrl.origin +
-            redirectLocation
-        )
+      const proxied = rewriteRedirectLocation(redirectLocation, targetUrl, url.origin);
+      if (proxied) {
+        headers.set("Location", proxied);
       }
     }
-    
+
     return new Response(response.body, {
       status: response.status,
       statusText: response.statusText,
